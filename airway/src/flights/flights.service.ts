@@ -461,8 +461,14 @@ export class FlightsService {
       }
 
       const passenger = passengerMap.get(userId);
-      passenger.totalSeats += booking.seatCount;
-      passenger.totalAmount += Number(booking.totalPrice);
+      
+      // Only count non-cancelled bookings in totals
+      if (booking.status !== BookingStatus.CANCELLED) {
+        passenger.totalSeats += booking.seatCount;
+        passenger.totalAmount += Number(booking.totalPrice);
+      }
+      
+      // Always count booking for bookingCount (to show total bookings including cancelled)
       passenger.bookingCount += 1;
       passenger.statuses.add(booking.status);
 
@@ -474,19 +480,28 @@ export class FlightsService {
     });
 
     // Convert map to array and create PassengerInfoDto
-    const passengers: PassengerInfoDto[] = Array.from(passengerMap.values()).map((p) => ({
-      userId: p.userId,
-      name: p.name,
-      email: p.email,
-      totalSeats: p.totalSeats,
-      totalAmount: p.totalAmount,
-      firstBookingDate: p.firstBookingDate,
-      bookingCount: p.bookingCount,
-      // If all bookings have same status, use that; otherwise use CONFIRMED as default
-      status: p.statuses.size === 1 ? Array.from(p.statuses)[0] : BookingStatus.CONFIRMED,
-    }));
+    // Filter out passengers who only have cancelled bookings (no active bookings)
+    const passengers: PassengerInfoDto[] = Array.from(passengerMap.values())
+      .filter((p) => {
+        // Only include passengers who have at least one non-cancelled booking
+        return !p.statuses.has(BookingStatus.CANCELLED) || p.statuses.size > 1;
+      })
+      .map((p) => ({
+        userId: p.userId,
+        name: p.name,
+        email: p.email,
+        totalSeats: p.totalSeats,
+        totalAmount: p.totalAmount,
+        firstBookingDate: p.firstBookingDate,
+        bookingCount: p.bookingCount,
+        // If all bookings have same status, use that; otherwise use CONFIRMED as default
+        // If passenger has cancelled bookings but also active ones, show CONFIRMED
+        status: p.statuses.size === 1 
+          ? Array.from(p.statuses)[0] 
+          : (p.statuses.has(BookingStatus.CONFIRMED) ? BookingStatus.CONFIRMED : BookingStatus.CANCELLED),
+      }));
 
-    // Calculate totals
+    // Calculate totals (only from non-cancelled bookings)
     const totalSeatsBooked = passengers.reduce((sum, p) => sum + p.totalSeats, 0);
     const totalRevenue = passengers.reduce((sum, p) => sum + p.totalAmount, 0);
 

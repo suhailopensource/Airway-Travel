@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Box, Button, Flex, Chip } from '@sparrowengg/twigs-react';
+import { Box, Button, Flex, Chip, AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogActions, AlertDialogAction, AlertDialogCancel } from '@sparrowengg/twigs-react';
 import { flightsAPI } from '../../api/flights';
 import { Loading } from '../../components/Loading';
 import { ErrorMessage } from '../../components/ErrorMessage';
-import { formatDate, formatCurrency, canUpdateFlight } from '../../utils/helpers';
+import { SuccessMessage } from '../../components/SuccessMessage';
+import { formatDate, formatCurrency, canUpdateFlight, canCancelFlight } from '../../utils/helpers';
 import { Flight } from '../../types';
 import '../../styles/surveysparrow-theme.css';
 import '../../styles/ui-components.css';
@@ -13,6 +14,10 @@ export const MyFlights = () => {
   const [flights, setFlights] = useState<Flight[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState<boolean>(false);
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchFlights = async (): Promise<void> => {
@@ -31,11 +36,41 @@ export const MyFlights = () => {
     fetchFlights();
   }, []);
 
+
+  const handleCancelFlight = async (flightId: string): Promise<void> => {
+    setCancellingId(flightId);
+    setError('');
+    setSuccess('');
+
+    try {
+      await flightsAPI.cancel(flightId);
+      setSuccess('Flight cancelled successfully. All bookings for this flight have been cancelled.');
+      setCancelDialogOpen(false);
+      setSelectedFlightId(null);
+      
+      // Refresh flights list
+      const data = await flightsAPI.getMyFlights();
+      setFlights(data);
+    } catch (err) {
+      const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
+      setError(axiosError.response?.data?.message || axiosError.message || 'Failed to cancel flight');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const openCancelDialog = (flightId: string): void => {
+    setSelectedFlightId(flightId);
+    setCancelDialogOpen(true);
+  };
+
   if (loading) return <Loading />;
-  if (error) return <ErrorMessage message={error} />;
 
   return (
     <Box css={{ animation: 'fadeIn 0.5s ease-in' }}>
+      <SuccessMessage message={success} onClose={() => setSuccess('')} />
+      <ErrorMessage message={error} onClose={() => setError('')} />
+
       <div className="dashboard-header">
         <Flex justify="between" align="center">
           <div>
@@ -65,6 +100,7 @@ export const MyFlights = () => {
         <div className="flight-list">
           {flights.map((flight) => {
             const canUpdate = canUpdateFlight(flight);
+            const canCancel = canCancelFlight(flight);
             
             return (
               <div key={flight.id} className="flight-item-card">
@@ -125,6 +161,57 @@ export const MyFlights = () => {
                   {!canUpdate && (
                     <Chip variant="error" css={{ fontSize: '0.875rem' }}>
                       Cannot edit {flight.status} flight
+                    </Chip>
+                  )}
+                  {canCancel && (
+                    <AlertDialog open={cancelDialogOpen && selectedFlightId === flight.id} onOpenChange={(open) => {
+                      setCancelDialogOpen(open);
+                      if (!open) setSelectedFlightId(null);
+                    }}>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          className="btn-error"
+                          onClick={() => openCancelDialog(flight.id)}
+                        >
+                          Cancel Flight
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogTitle>Cancel Flight</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to cancel flight <strong>{flight.flightNumber}</strong>? 
+                          <br /><br />
+                          This action will:
+                          <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
+                            <li>Mark the flight as CANCELLED</li>
+                            <li>Cancel all confirmed bookings for this flight</li>
+                            <li>Restore all seats to available</li>
+                          </ul>
+                          <br />
+                          This action cannot be undone.
+                        </AlertDialogDescription>
+                        <AlertDialogActions>
+                          <AlertDialogCancel asChild>
+                            <Button className="btn-outline">
+                              Keep Flight
+                            </Button>
+                          </AlertDialogCancel>
+                          <AlertDialogAction asChild>
+                            <Button
+                              onClick={() => handleCancelFlight(flight.id)}
+                              disabled={cancellingId === flight.id}
+                              className="btn-error"
+                            >
+                              {cancellingId === flight.id ? 'Cancelling...' : 'Yes, Cancel Flight'}
+                            </Button>
+                          </AlertDialogAction>
+                        </AlertDialogActions>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                  {!canCancel && flight.status !== 'CANCELLED' && (
+                    <Chip variant="warning" css={{ fontSize: '0.875rem' }}>
+                      Cannot cancel {flight.status} flight
                     </Chip>
                   )}
                 </div>

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Box, Button, Text, Chip } from '@sparrowengg/twigs-react';
+import { Box, Button, Text, Chip, Flex } from '@sparrowengg/twigs-react';
 import { flightsAPI } from '../../api/flights';
 import { Loading } from '../../components/Loading';
 import { ErrorMessage } from '../../components/ErrorMessage';
@@ -14,27 +14,71 @@ export const PassengerList = () => {
   const { id } = useParams<{ id: string }>();
   const [passengerData, setPassengerData] = useState<FlightPassengerListDto | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const navigate = useNavigate();
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isPageVisibleRef = useRef<boolean>(true);
+
+  const fetchPassengers = useCallback(async (showLoading: boolean = true): Promise<void> => {
+    if (!id) return;
+    
+    try {
+      if (showLoading) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+      setError('');
+      const data = await flightsAPI.getFlightPassengers(id) as FlightPassengerListDto;
+      setPassengerData(data);
+    } catch (err) {
+      const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
+      setError(axiosError.response?.data?.message || axiosError.message || 'Failed to load passenger list');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [id]);
 
   useEffect(() => {
-    const fetchPassengers = async (): Promise<void> => {
-      try {
-        setLoading(true);
-        const data = await flightsAPI.getFlightPassengers(id!) as FlightPassengerListDto;
-        setPassengerData(data);
-      } catch (err) {
-        const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
-        setError(axiosError.response?.data?.message || axiosError.message || 'Failed to load passenger list');
-      } finally {
-        setLoading(false);
+    if (id) {
+      fetchPassengers(true);
+    }
+  }, [id, fetchPassengers]);
+
+  // Auto-refresh every 30 seconds when page is visible
+  useEffect(() => {
+    const handleVisibilityChange = (): void => {
+      isPageVisibleRef.current = !document.hidden;
+      
+      // If page becomes visible, refresh immediately
+      if (!document.hidden && id) {
+        fetchPassengers(false);
       }
     };
 
-    if (id) {
-      fetchPassengers();
-    }
-  }, [id]);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Set up auto-refresh interval (30 seconds)
+    refreshIntervalRef.current = setInterval(() => {
+      // Only refresh if page is visible
+      if (isPageVisibleRef.current && id) {
+        fetchPassengers(false);
+      }
+    }, 30000); // 30 seconds
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [id, fetchPassengers]);
+
+  const handleManualRefresh = (): void => {
+    fetchPassengers(false);
+  };
 
   if (loading) return <Loading />;
   if (error) {
@@ -51,13 +95,44 @@ export const PassengerList = () => {
 
   return (
     <Box css={{ animation: 'fadeIn 0.5s ease-in' }}>
-      <BackButton to="/flights/my" label="Back to My Flights" />
+      <Flex justify="between" align="center" css={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '$md' }}>
+        <BackButton to="/flights/my" label="Back to My Flights" />
+        <Button
+          onClick={handleManualRefresh}
+          disabled={refreshing || loading}
+          className="btn-outline"
+          css={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          {refreshing ? (
+            <>
+              <span>🔄</span> Refreshing...
+            </>
+          ) : (
+            <>
+              <span>🔄</span> Refresh
+            </>
+          )}
+        </Button>
+      </Flex>
 
       <div className="dashboard-header" style={{ marginBottom: '2rem' }}>
-        <h1 className="dashboard-title">
-          Passenger List - {passengerData.flightNumber}
-        </h1>
-        <p className="dashboard-subtitle">View all passengers and booking statistics for this flight</p>
+        <Flex justify="between" align="start" css={{ flexWrap: 'wrap', gap: '$md' }}>
+          <div>
+            <h1 className="dashboard-title">
+              Passenger List - {passengerData.flightNumber}
+            </h1>
+            <p className="dashboard-subtitle">View all passengers and booking statistics for this flight</p>
+          </div>
+          {refreshing && (
+            <Text size="sm" css={{ color: 'var(--ss-neutral-600)', fontStyle: 'italic' }}>
+              Auto-refreshing...
+            </Text>
+          )}
+        </Flex>
       </div>
 
       <div className="stats-grid" style={{ marginBottom: '2rem' }}>

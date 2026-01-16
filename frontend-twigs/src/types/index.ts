@@ -110,6 +110,11 @@ export interface Booking {
   updatedAt: string;
   flight?: Flight;
   provider?: Provider;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  };
 }
 
 export interface CreateBookingDto {

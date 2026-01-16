@@ -111,3 +111,24 @@ export const getFlightUpdateReason = (flight: Flight | null | undefined): string
   return null;
 };
 
+/**
+ * Check if flight can be cancelled
+ * Based on backend validation rules
+ */
+export const canCancelFlight = (flight: Flight | null | undefined): boolean => {
+  if (!flight) return false;
+  
+  // Cannot cancel if already cancelled
+  if (flight.status === 'CANCELLED') return false;
+  
+  // Cannot cancel if flight has already departed
+  const now = new Date();
+  const departureTime = new Date(flight.departureTime);
+  if (now >= departureTime) return false;
+  
+  // Can only cancel SCHEDULED flights
+  if (flight.status !== 'SCHEDULED') return false;
+  
+  return true;
+};
+

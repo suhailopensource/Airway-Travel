@@ -1,4 +1,4 @@
-import { useState, useEffect, MouseEvent } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Box, Button, Text, Flex, Chip } from '@sparrowengg/twigs-react';
 import { flightsAPI } from '../../api/flights';
@@ -9,52 +9,97 @@ import { SuccessMessage } from '../../components/SuccessMessage';
 import { BackButton } from '../../components/BackButton';
 import { formatDate, formatCurrency } from '../../utils/helpers';
 import { BOOKING_STATUS } from '../../utils/constants';
-import { Flight, Booking, BookingStatus } from '../../types';
+import { Flight, Booking } from '../../types';
 import '../../styles/surveysparrow-theme.css';
 import '../../styles/ui-components.css';
 
-const { CONFIRMED, BOARDED, NOT_BOARDED } = BOOKING_STATUS;
+const { CONFIRMED } = BOOKING_STATUS;
 
 export const FlightBookings = () => {
   const { id } = useParams<{ id: string }>();
   const [flight, setFlight] = useState<Flight | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
   const navigate = useNavigate();
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isPageVisibleRef = useRef<boolean>(true);
 
-  useEffect(() => {
-    const fetchData = async (): Promise<void> => {
-      try {
+  const fetchData = useCallback(async (showLoading: boolean = true): Promise<void> => {
+    if (!id) return;
+    
+    try {
+      if (showLoading) {
         setLoading(true);
-        const [flightData, bookingsData] = await Promise.all([
-          flightsAPI.getById(id!),
-          flightsAPI.getFlightBookings(id!),
-        ]);
-        setFlight(flightData);
-        setBookings(bookingsData);
-      } catch (err) {
-        const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
-        setError(axiosError.response?.data?.message || axiosError.message || 'Failed to load bookings');
-      } finally {
-        setLoading(false);
+      } else {
+        setRefreshing(true);
       }
-    };
-
-    if (id) {
-      fetchData();
+      setError('');
+      const [flightData, bookingsData] = await Promise.all([
+        flightsAPI.getById(id),
+        flightsAPI.getFlightBookings(id),
+      ]);
+      setFlight(flightData);
+      setBookings(bookingsData as Booking[]);
+    } catch (err) {
+      const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
+      setError(axiosError.response?.data?.message || axiosError.message || 'Failed to load bookings');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [id]);
 
-  const handleBoard = async (bookingId: string, status: BookingStatus): Promise<void> => {
+  useEffect(() => {
+    if (id) {
+      fetchData(true);
+    }
+  }, [id, fetchData]);
+
+  // Auto-refresh every 30 seconds when page is visible
+  useEffect(() => {
+    const handleVisibilityChange = (): void => {
+      isPageVisibleRef.current = !document.hidden;
+      
+      // If page becomes visible, refresh immediately
+      if (!document.hidden && id) {
+        fetchData(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Set up auto-refresh interval (30 seconds)
+    refreshIntervalRef.current = setInterval(() => {
+      // Only refresh if page is visible
+      if (isPageVisibleRef.current && id) {
+        fetchData(false);
+      }
+    }, 30000); // 30 seconds
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [id, fetchData]);
+
+  const handleManualRefresh = (): void => {
+    fetchData(false);
+  };
+
+  const handleBoard = async (bookingId: string, status: 'BOARDED' | 'NOT_BOARDED'): Promise<void> => {
     setError('');
     setSuccess('');
 
     try {
       await bookingsAPI.board(bookingId, { status });
       setSuccess(`Booking marked as ${status}`);
-      const bookingsData = await flightsAPI.getFlightBookings(id!);
+      // Refresh bookings list after boarding status change
+      const bookingsData = await flightsAPI.getFlightBookings(id!) as Booking[];
       setBookings(bookingsData);
     } catch (err) {
       const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
@@ -76,13 +121,44 @@ export const FlightBookings = () => {
 
   return (
     <Box css={{ animation: 'fadeIn 0.5s ease-in' }}>
-      <BackButton to="/flights/my" label="Back to My Flights" />
+      <Flex justify="between" align="center" css={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '$md' }}>
+        <BackButton to="/flights/my" label="Back to My Flights" />
+        <Button
+          onClick={handleManualRefresh}
+          disabled={refreshing || loading}
+          className="btn-outline"
+          css={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          {refreshing ? (
+            <>
+              <span>🔄</span> Refreshing...
+            </>
+          ) : (
+            <>
+              <span>🔄</span> Refresh
+            </>
+          )}
+        </Button>
+      </Flex>
 
       <div className="dashboard-header" style={{ marginBottom: '2rem' }}>
-        <h1 className="dashboard-title">
-          {flight ? `Bookings for ${flight.flightNumber}` : 'Flight Bookings'}
-        </h1>
-        <p className="dashboard-subtitle">Manage and track all bookings for this flight</p>
+        <Flex justify="between" align="start" css={{ flexWrap: 'wrap', gap: '$md' }}>
+          <div>
+            <h1 className="dashboard-title">
+              {flight ? `Bookings for ${flight.flightNumber}` : 'Flight Bookings'}
+            </h1>
+            <p className="dashboard-subtitle">Manage and track all bookings for this flight</p>
+          </div>
+          {refreshing && (
+            <Text size="sm" css={{ color: 'var(--ss-neutral-600)', fontStyle: 'italic' }}>
+              Auto-refreshing...
+            </Text>
+          )}
+        </Flex>
       </div>
 
       <SuccessMessage message={success} onClose={() => setSuccess('')} />
@@ -155,13 +231,13 @@ export const FlightBookings = () => {
                 {canBoard && (
                   <div className="flight-actions" style={{ marginTop: '1rem' }}>
                     <Button
-                      onClick={() => handleBoard(booking.id, BOARDED as BookingStatus)}
+                      onClick={() => handleBoard(booking.id, 'BOARDED')}
                       className="btn-success"
                     >
                       Mark as Boarded
                     </Button>
                     <Button
-                      onClick={() => handleBoard(booking.id, NOT_BOARDED as BookingStatus)}
+                      onClick={() => handleBoard(booking.id, 'NOT_BOARDED')}
                       className="btn-error"
                     >
                       Mark as Not Boarded
