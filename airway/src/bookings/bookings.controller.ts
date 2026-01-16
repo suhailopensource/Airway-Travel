@@ -12,7 +12,7 @@ import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BoardBookingDto } from './dto/board-booking.dto';
 import { BookingResponseDto, BookingWithRelationsDto } from './dto/booking-response.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -21,8 +21,7 @@ import { Role } from '../common/enums/role.enum';
 
 @ApiTags('Bookings')
 @Controller('bookings')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth()
+@UseGuards(SessionAuthGuard)
 export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 

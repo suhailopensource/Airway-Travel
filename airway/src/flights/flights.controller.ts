@@ -18,7 +18,7 @@ import { SearchFlightsOpenSearchDto } from './dto/search-flights-opensearch.dto'
 import { FlightResponseDto, FlightWithProviderDto } from './dto/flight-response.dto';
 import { FlightAvailabilityDto } from './dto/flight-availability.dto';
 import { FlightPassengerListDto } from './dto/passenger-list.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -31,9 +31,8 @@ export class FlightsController {
   constructor(private readonly flightsService: FlightsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)
-  @ApiBearerAuth()
   @ApiOperation({ 
     summary: 'Create a new flight',
     description: 'Only AIRWAY_PROVIDER can create flights. The flight will be associated with the authenticated provider.'
@@ -198,9 +197,8 @@ export class FlightsController {
   }
 
   @Get('my')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)
-  @ApiBearerAuth()
   @ApiOperation({ 
     summary: 'Get all flights for authenticated provider',
     description: 'Returns all flights created by the authenticated provider. Flights are sorted by departure time (ascending).'
@@ -257,9 +255,8 @@ export class FlightsController {
   }
 
   @Get(':id/bookings')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)
-  @ApiBearerAuth()
   @ApiOperation({ 
     summary: 'Get bookings for a flight',
     description: 'Returns all bookings for a specific flight. Only the provider who owns the flight can view its bookings.'
@@ -303,9 +300,8 @@ export class FlightsController {
   }
 
   @Get(':id/passengers')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)
-  @ApiBearerAuth()
   @ApiOperation({ 
     summary: 'Get passenger list for a flight',
     description: 'Returns aggregated passenger list for a specific flight. Passengers are grouped by user with total seats, total amount, and booking count. Only the provider who owns the flight can view its passengers.'
@@ -339,9 +335,8 @@ export class FlightsController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)
-  @ApiBearerAuth()
   @ApiOperation({ 
     summary: 'Update a flight',
     description: 'Only the provider who owns the flight can update it.'
@@ -370,9 +365,8 @@ export class FlightsController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)
-  @ApiBearerAuth()
   @ApiOperation({ 
     summary: 'Cancel a flight',
     description: 'Only the provider who owns the flight can cancel it. The flight status will be set to CANCELLED.'

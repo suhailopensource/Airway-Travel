@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -12,8 +12,7 @@ import { ProviderDashboardDto } from './dto/provider-dashboard.dto';
 
 @ApiTags('Dashboard')
 @Controller('dashboard')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth()
+@UseGuards(SessionAuthGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 

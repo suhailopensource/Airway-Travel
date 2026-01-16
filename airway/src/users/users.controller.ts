@@ -2,7 +2,7 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { BookingsService } from '../bookings/bookings.service';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -11,9 +11,8 @@ import { Role } from '../common/enums/role.enum';
 import { UserBookingHistoryDto } from './dto/user-booking-history.dto';
 
 @ApiTags('Users')
-@ApiBearerAuth()
 @Controller('users')
-@UseGuards(JwtAuthGuard)
+@UseGuards(SessionAuthGuard)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
@@ -41,7 +40,13 @@ export class UsersController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized - Missing or invalid token' })
   getProfile(@CurrentUser() user: User) {
-    const { password, ...result } = user.toJSON();
+    // req.user is already a plain object from deserializeUser (password already removed)
+    // Just return it directly - no need to call toJSON() since it's not a Sequelize model
+    if (!user) {
+      throw new Error('User not found in request');
+    }
+    // Ensure password is not included (should already be removed in deserializeUser)
+    const { password, ...result } = user as any;
     return result;
   }
 
