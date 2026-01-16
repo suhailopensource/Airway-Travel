@@ -1,0 +1,220 @@
+import { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import {
+  Box,
+  Button,
+  Text,
+  Flex,
+  Grid,
+  Avatar,
+  Heading,
+  Chip,
+  Alert,
+  AlertDescription,
+  CircleLoader,
+} from '@sparrowengg/twigs-react';
+import { usersAPI } from '../../api/users';
+import { dashboardAPI } from '../../api/dashboard';
+import { useAuth } from '../../auth/AuthContext';
+import { BackButton } from '../../components/BackButton';
+import { formatDate } from '../../utils/helpers';
+import { User, UserDashboard } from '../../types';
+import '../../styles/surveysparrow-theme.css';
+import '../../styles/ui-components.css';
+
+interface DashboardFlight {
+  id: string;
+  flightNumber: string;
+  origin: string;
+  destination: string;
+  departureTime: string;
+  bookingStatus: string;
+}
+
+export const UserProfile = () => {
+  const { user: authUser } = useAuth();
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState<User | null>(null);
+  const [dashboard, setDashboard] = useState<UserDashboard | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    const fetchData = async (): Promise<void> => {
+      try {
+        setLoading(true);
+        const [profileData, dashboardData] = await Promise.all([
+          usersAPI.getProfile(),
+          dashboardAPI.getUserDashboard(),
+        ]);
+        setProfile(profileData);
+        setDashboard(dashboardData);
+      } catch (err) {
+        const axiosError = err as { response?: { data?: { message?: string } }; message?: string };
+        setError(axiosError.response?.data?.message || axiosError.message || 'Failed to load profile');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <Box css={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <CircleLoader size="xl" />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert status="error">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (!profile) return null;
+
+  const getInitials = (name: string | undefined): string => {
+    return name
+      ?.split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2) || 'U';
+  };
+
+  const upcomingFlights = dashboard?.upcomingFlights as DashboardFlight[] | undefined;
+
+  return (
+    <Box css={{ animation: 'fadeIn 0.5s ease-in', maxWidth: '1200px', margin: '0 auto', padding: '0 1rem' }}>
+      <BackButton to="/dashboard/user" label="Back to Dashboard" />
+
+      {/* Profile Header */}
+      <Box className="profile-header-card">
+        <Flex align="center" gap="$xl" css={{ flexWrap: 'wrap' }}>
+          <Avatar
+            size="3xl"
+            name={profile.name || profile.email}
+            className="profile-avatar"
+          >
+           
+          </Avatar>
+          <Box css={{ flex: 1, minWidth: '200px' }}>
+            <Heading size="h2" className="profile-name">
+              {profile.name || 'User'}
+            </Heading>
+            <Text className="profile-email">{profile.email}</Text>
+              <Chip color="bright" className="profile-role-chip">
+                {profile.role === 'USER' ? 'Passenger' : profile.role}
+              </Chip>
+         
+          </Box>
+        </Flex>
+      </Box>
+
+      {/* Stats Section */}
+      <Grid columns={{ '@initial': 1, '@md': 3 }} gap="$lg" css={{ marginBottom: '$xl' }}>
+        <Box className="stat-card primary">
+          <div className="stat-label">Total Bookings</div>
+          <div className="stat-value">{dashboard?.totalBookings || 0}</div>
+        </Box>
+        {upcomingFlights && upcomingFlights.length > 0 && (
+          <Box className="stat-card success">
+            <div className="stat-label">Upcoming Flights</div>
+            <div className="stat-value">{upcomingFlights.length}</div>
+          </Box>
+        )}
+        <Box className="stat-card info">
+          <div className="stat-label">Member Since</div>
+          <div className="stat-value-small">{formatDate(profile.createdAt)}</div>
+        </Box>
+      </Grid>
+
+      {/* Account Information */}
+      <Box className="profile-info-card" css={{ marginBottom: '$xl' }}>
+        <Heading size="h3" className="profile-section-title">Account Information</Heading>
+        <Grid columns={{ '@initial': 1, '@md': 2 }} gap="$lg">
+          <Box className="profile-info-item">
+            <Text className="profile-info-label">Full Name</Text>
+            <Text className="profile-info-value">{profile.name || 'Not provided'}</Text>
+          </Box>
+          <Box className="profile-info-item">
+            <Text className="profile-info-label">Email Address</Text>
+            <Text className="profile-info-value">{profile.email}</Text>
+          </Box>
+          <Box className="profile-info-item">
+            <Text className="profile-info-label">Account Type</Text>
+            <Chip color="primary" css={{ marginTop: '$xs' }}>
+              {profile.role === 'USER' ? 'Passenger' : profile.role}
+            </Chip>
+          </Box>
+          <Box className="profile-info-item">
+            <Text className="profile-info-label">Member Since</Text>
+            <Text className="profile-info-value">{formatDate(profile.createdAt)}</Text>
+          </Box>
+        </Grid>
+      </Box>
+
+      {/* Upcoming Flights */}
+      {upcomingFlights && upcomingFlights.length > 0 && (
+        <Box css={{ marginBottom: '$xl' }}>
+          <Heading size="h3" className="profile-section-title">Upcoming Flights</Heading>
+          <div className="flight-list">
+            {upcomingFlights.slice(0, 5).map((flight) => (
+              <Box key={flight.id} className="flight-item-card">
+                <Flex justify="between" align="start" css={{ marginBottom: '$md', flexWrap: 'wrap', gap: '$md' }}>
+                  <Box>
+                    <Text className="flight-item-title">{flight.flightNumber}</Text>
+                    <Text className="flight-item-route">{flight.origin} → {flight.destination}</Text>
+                  </Box>
+                  <Chip
+                    variant={flight.bookingStatus === 'CONFIRMED' ? 'success' : 'warning'}
+                    css={{ fontSize: '0.75rem' }}
+                  >
+                    {flight.bookingStatus}
+                  </Chip>
+                </Flex>
+                <Flex gap="$md" css={{ marginBottom: '$md', flexWrap: 'wrap' }}>
+                  <Text className="flight-item-meta-item">
+                    📅 Departure: {formatDate(flight.departureTime)}
+                  </Text>
+                </Flex>
+                <Button
+                  as={Link}
+                  to={`/flights/${flight.id}`}
+                  className="btn-primary"
+                  size="sm"
+                >
+                  View Details
+                </Button>
+              </Box>
+            ))}
+          </div>
+        </Box>
+      )}
+
+      {/* Empty State */}
+      {(!dashboard || dashboard.totalBookings === 0) && (
+        <Box className="empty-state">
+          <Text className="empty-state-icon">✈️</Text>
+          <Heading size="h4" className="empty-state-title">No bookings yet</Heading>
+          <Text className="empty-state-text">Start exploring flights to book your first trip!</Text>
+          <Button
+            as={Link}
+            to="/flights/search"
+            className="btn-primary"
+            size="lg"
+            css={{ marginTop: '$lg' }}
+          >
+            Search Flights
+          </Button>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
