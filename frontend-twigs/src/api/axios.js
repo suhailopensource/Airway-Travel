@@ -6,29 +6,17 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Enable cookies for session-based auth
 });
-
-// Request interceptor: Inject JWT token from localStorage
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
 
 // Response interceptor: Handle 401/403 errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      // 401 Unauthorized - Token expired or invalid
+      // 401 Unauthorized - Session expired or invalid
       if (error.response.status === 401) {
+        // Clear any stale local storage
         localStorage.removeItem('access_token');
         localStorage.removeItem('user');
         // Redirect to login if not already there

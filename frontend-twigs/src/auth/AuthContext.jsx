@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '../api/auth';
-import { decodeToken } from '../utils/helpers';
 
 const AuthContext = createContext(null);
 
@@ -8,50 +7,32 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Initialize auth state from localStorage
+  // Initialize auth state from session
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    const userData = localStorage.getItem('user');
-
-    if (token && userData) {
+    const checkAuth = async () => {
       try {
-        const parsedUser = JSON.parse(userData);
-        // Decode token to get role (for UI, backend is source of truth)
-        const decoded = decodeToken(token);
-        if (decoded) {
-          setUser({
-            ...parsedUser,
-            role: decoded.role || parsedUser.role,
-          });
-        } else {
-          setUser(parsedUser);
+        const userData = await authAPI.getCurrentUser();
+        if (userData) {
+          setUser(userData);
         }
       } catch (error) {
-        console.error('Error parsing user data:', error);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+        // No active session
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+
+    checkAuth();
   }, []);
 
   const login = async (email, password) => {
     try {
       const response = await authAPI.login({ email, password });
       
-      // Store token and user data
-      localStorage.setItem('access_token', response.access_token);
-      localStorage.setItem('user', JSON.stringify(response.user || response));
-      
-      // Decode token to get role
-      const decoded = decodeToken(response.access_token);
-      const userData = {
-        ...(response.user || response),
-        role: decoded?.role || response.role,
-      };
-      
-      setUser(userData);
-      return { success: true, data: userData };
+      // Session is stored in HttpOnly cookie, just store user data in state
+      setUser(response);
+      return { success: true, data: response };
     } catch (error) {
       return {
         success: false,
@@ -64,19 +45,9 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.register({ email, password, name, role });
       
-      // Store token and user data
-      localStorage.setItem('access_token', response.access_token);
-      localStorage.setItem('user', JSON.stringify(response));
-      
-      // Decode token to get role
-      const decoded = decodeToken(response.access_token);
-      const userData = {
-        ...response,
-        role: decoded?.role || response.role,
-      };
-      
-      setUser(userData);
-      return { success: true, data: userData };
+      // Session is created automatically after registration
+      setUser(response);
+      return { success: true, data: response };
     } catch (error) {
       return {
         success: false,
@@ -85,10 +56,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    setUser(null);
+  const logout = async () => {
+    try {
+      await authAPI.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+    }
   };
 
   const value = {

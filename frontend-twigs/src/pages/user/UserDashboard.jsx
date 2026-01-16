@@ -42,7 +42,7 @@ export const UserDashboard = () => {
       
       <div className="stats-grid" style={{ marginBottom: '2.5rem' }}>
         <div className="stat-card primary">
-          <div className="stat-label">Total Bookings</div>
+          <div className="stat-label">Active Bookings</div>
           <div className="stat-value">{dashboard.totalBookings}</div>
         </div>
         {dashboard.upcomingFlights && dashboard.upcomingFlights.length > 0 && (

@@ -2,27 +2,31 @@ import api from './axios';
 
 /**
  * Auth API endpoints
- * Based on backend: /auth/register, /auth/login, /auth/validate-token
+ * Based on backend: /auth/register, /auth/login, /auth/logout, /auth/me
  */
 
 export const authAPI = {
-  // Register new user
+  // Register new user (auto-login after registration)
   register: async (data) => {
     const response = await api.post('/auth/register', data);
     return response.data;
   },
 
-  // Login user
+  // Login user (creates session)
   login: async (data) => {
     const response = await api.post('/auth/login', data);
     return response.data;
   },
 
-  // Validate token
-  validateToken: async (token) => {
-    const response = await api.get('/auth/validate-token', {
-      params: { token },
-    });
+  // Logout user (destroys session)
+  logout: async () => {
+    const response = await api.post('/auth/logout');
+    return response.data;
+  },
+
+  // Get current user from session
+  getCurrentUser: async () => {
+    const response = await api.get('/auth/me');
     return response.data;
   },
 };

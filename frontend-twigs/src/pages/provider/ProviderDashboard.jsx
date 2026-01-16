@@ -47,7 +47,7 @@ export const ProviderDashboard = () => {
   <div>
     <h1 className="dashboard-title">Provider Dashboard</h1>
     <p className="dashboard-subtitle">
-      Manage your flights and track performance
+      Manage your Active flights and track performance
     </p>
   </div>
 
@@ -66,7 +66,7 @@ export const ProviderDashboard = () => {
 
       <div className="stats-grid" style={{ marginBottom: '2.5rem' }}>
         <div className="stat-card primary">
-          <div className="stat-label">Total Flights</div>
+          <div className="stat-label">Active Flights</div>
           <div className="stat-value">{dashboard.totalFlights}</div>
         </div>
         
