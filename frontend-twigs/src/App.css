@@ -1,0 +1,34 @@
+/* App-specific styles */
+
+/* Enhanced button styles */
+button {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+/* Enhanced card styles */
+.card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Smooth page transitions */
+.page-enter {
+  animation: fadeIn 0.5s ease-in;
+}
+
+/* Enhanced input focus styles */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--ss-primary);
+  box-shadow: 0 0 0 3px rgba(0, 130, 141, 0.1);
+}
