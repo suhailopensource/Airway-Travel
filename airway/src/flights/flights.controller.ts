@@ -364,6 +364,40 @@ export class FlightsController {
     return this.flightsService.update(id, updateFlightDto, user.id, user.role);
   }
 
+  @Post('cleanup-opensearch')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles(Role.AIRWAY_PROVIDER)
+  @ApiOperation({ 
+    summary: 'Cleanup orphaned OpenSearch documents',
+    description: 'Removes documents from OpenSearch that no longer exist in the database. Only AIRWAY_PROVIDER can run this cleanup.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Cleanup completed',
+    schema: {
+      type: 'object',
+      properties: {
+        totalInOpenSearch: { type: 'number' },
+        totalInDatabase: { type: 'number' },
+        orphanedCount: { type: 'number' },
+        deletedCount: { type: 'number' },
+        errors: { type: 'array', items: { type: 'string' } },
+      },
+      example: {
+        totalInOpenSearch: 150,
+        totalInDatabase: 145,
+        orphanedCount: 5,
+        deletedCount: 5,
+        errors: [],
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - AIRWAY_PROVIDER role required' })
+  async cleanupOpenSearch(@CurrentUser() user: User) {
+    return this.flightsService.cleanupOrphanedOpenSearchDocuments();
+  }
+
   @Delete(':id')
   @UseGuards(SessionAuthGuard, RolesGuard)
   @Roles(Role.AIRWAY_PROVIDER)

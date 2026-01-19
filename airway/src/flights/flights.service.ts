@@ -629,8 +629,15 @@ export class FlightsService {
     // Reload flight to get updated data
     await flight.reload();
 
-    // Update in OpenSearch with provider name
-    await this.indexFlightWithProvider(flight);
+    // Remove from OpenSearch since flight is cancelled (not searchable)
+    // If flight still exists in DB but is cancelled, we remove it from search index
+    try {
+      await this.openSearchService.deleteDocument(this.OPENSEARCH_INDEX, id);
+    } catch (error) {
+      // Log error but don't fail the operation if OpenSearch deletion fails
+      // Document might not exist in OpenSearch
+      console.warn(`Failed to delete flight ${id} from OpenSearch:`, error.message);
+    }
 
     // Invalidate caches: cancelled flight should not appear in search results
     await this.invalidateFlightCaches(flight.id, flight.providerId);
@@ -1013,6 +1020,76 @@ export class FlightsService {
       await this.redisService.setJSON(cacheKey, fallbackResult, 60);
 
       return fallbackResult;
+    }
+  }
+
+  /**
+   * Cleanup orphaned documents from OpenSearch
+   * Removes documents that exist in OpenSearch but not in the database
+   * 
+   * This is useful for:
+   * - Removing documents for flights that were deleted from the database
+   * - Syncing OpenSearch with database state
+   * - Cleaning up after manual database operations
+   * 
+   * @returns Object with cleanup statistics
+   */
+  async cleanupOrphanedOpenSearchDocuments(): Promise<{
+    totalInOpenSearch: number;
+    totalInDatabase: number;
+    orphanedCount: number;
+    deletedCount: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    let deletedCount = 0;
+
+    try {
+      // Get all document IDs from OpenSearch
+      const openSearchIds = await this.openSearchService.getAllDocumentIds(
+        this.OPENSEARCH_INDEX,
+      );
+
+      if (openSearchIds.length === 0) {
+        return {
+          totalInOpenSearch: 0,
+          totalInDatabase: 0,
+          orphanedCount: 0,
+          deletedCount: 0,
+          errors: [],
+        };
+      }
+
+      // Get all flight IDs from database
+      const dbFlights = await this.flightModel.findAll({
+        attributes: ['id'],
+        raw: true,
+      });
+      const dbFlightIds = new Set(dbFlights.map((f: any) => f.id));
+
+      // Find orphaned documents (exist in OpenSearch but not in database)
+      const orphanedIds = openSearchIds.filter((id) => !dbFlightIds.has(id));
+
+      // Delete orphaned documents
+      for (const id of orphanedIds) {
+        try {
+          await this.openSearchService.deleteDocument(this.OPENSEARCH_INDEX, id);
+          deletedCount++;
+        } catch (error: any) {
+          errors.push(`Failed to delete document ${id}: ${error.message}`);
+        }
+      }
+
+      return {
+        totalInOpenSearch: openSearchIds.length,
+        totalInDatabase: dbFlightIds.size,
+        orphanedCount: orphanedIds.length,
+        deletedCount,
+        errors,
+      };
+    } catch (error: any) {
+      errors.push(`Cleanup failed: ${error.message}`);
+      throw new Error(`Failed to cleanup orphaned documents: ${error.message}`);
     }
   }
 }

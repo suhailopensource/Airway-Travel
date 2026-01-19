@@ -21,6 +21,7 @@
     "db:view": "node view-database.js",
     "db:connect": "docker-compose exec postgres psql -U airway_user -d airway_db",
     "opensearch:reindex": "node reindex-flights.js",
+    "opensearch:cleanup": "node cleanup-opensearch.js",
     "test:concurrent-bookings": "node simulate-concurrent-bookings.js"
   },
   "dependencies": {
