@@ -16,7 +16,6 @@ import { TimeValidationService } from '../common/services/time-validation.servic
 import { InsufficientSeatsException } from '../common/exceptions/business.exceptions';
 import { 
   getFlightAvailabilityCacheKey, 
-  getBookingLockKey,
   getBookingsByUserCacheKey,
   getUserDashboardCacheKey,
   getFlightBookingsCacheKey,
@@ -46,107 +45,95 @@ export class BookingsService {
       throw new BadRequestException('Seat count must be greater than 0');
     }
 
-    // Acquire Redis distributed lock for this flight to prevent race conditions
-    // This is the first layer of protection - prevents concurrent booking attempts
-    const lockKey = getBookingLockKey(flightId);
-    const lockAcquired = await this.redisService.acquireLock(lockKey, CACHE_TTL.BOOKING_LOCK);
-
-    if (!lockAcquired) {
-      throw new BadRequestException('Flight is currently being booked. Please try again.');
-    }
+    // Use database transaction with SELECT FOR UPDATE for concurrency control
+    // This allows multiple bookings to proceed in parallel when seats are available
+    // Database serializes only when updating the same flight row
+    const transaction: Transaction = await this.bookingModel.sequelize.transaction();
 
     try {
-      // Use database transaction to ensure atomicity
-      // This is the second layer of protection - ensures all-or-nothing operations
-      const transaction: Transaction = await this.bookingModel.sequelize.transaction();
+      // SELECT ... FOR UPDATE: Lock the flight row for exclusive access
+      // Multiple transactions can proceed in parallel, but database serializes
+      // row-level updates to prevent overbooking
+      const flight = await this.flightModel.findByPk(flightId, {
+        lock: true, // SELECT ... FOR UPDATE - row-level lock
+        transaction,
+      });
 
-      try {
-        // SELECT ... FOR UPDATE: Lock the flight row for exclusive access
-        // This prevents other transactions from reading/writing this flight until we commit
-        const flight = await this.flightModel.findByPk(flightId, {
-          lock: true, // SELECT ... FOR UPDATE
-          transaction,
-        });
-
-        if (!flight) {
-          throw new NotFoundException(`Flight with ID ${flightId} not found`);
-        }
-
-        // Re-check time inside transaction (server time, not client time)
-        const now = this.timeValidationService.getCurrentTime();
-        
-        // Time-based validation: Cannot book after departure
-        if (now >= flight.departureTime) {
-          throw new BadRequestException('Booking is not allowed after flight departure.');
-        }
-
-        // Flight bookability validation (status + time checks)
-        this.timeValidationService.validateFlightBookable(flight);
-
-        // Atomic validation: Check available seats while row is locked
-        // Cannot book if availableSeats = 0
-        if (flight.availableSeats === 0) {
-          throw new BadRequestException('No seats available. Flight is fully booked.');
-        }
-
-        // Validate seat count atomically
-        if (flight.availableSeats < seatCount) {
-          throw new InsufficientSeatsException(flight.availableSeats, seatCount);
-        }
-
-        // Calculate total price
-        const totalPrice = flight.price * seatCount;
-
-        // Get provider information to store with booking
-        const provider = await this.userModel.findByPk(flight.providerId, {
-          attributes: ['id', 'name', 'email'],
-          transaction,
-        });
-
-        if (!provider) {
-          throw new NotFoundException('Flight provider not found');
-        }
-
-        // Create booking record atomically within transaction
-        const booking = await this.bookingModel.create(
-          {
-            userId,
-            flightId,
-            providerId: provider.id,
-            providerName: provider.name,
-            providerEmail: provider.email,
-            seatCount,
-            totalPrice,
-            status: BookingStatus.CONFIRMED,
-            bookedAt: new Date(),
-          },
-          { transaction },
-        );
-
-        // Update flight available seats atomically
-        // This happens within the same transaction, so it's atomic with booking creation
-        await flight.update(
-          {
-            availableSeats: flight.availableSeats - seatCount,
-          },
-          { transaction },
-        );
-
-        // Commit transaction - all changes become visible atomically
-        await transaction.commit();
-
-        // Invalidate related caches (flight.providerId is available from the locked flight)
-        await this.invalidateBookingRelatedCaches(userId, flightId, flight.providerId);
-
-        return booking;
-      } catch (error) {
-        // Rollback transaction on any error - ensures consistency
-        await transaction.rollback();
-        throw error;
+      if (!flight) {
+        throw new NotFoundException(`Flight with ID ${flightId} not found`);
       }
-    } finally {
-      // Always release the Redis lock, even if transaction fails
-      await this.redisService.releaseLock(lockKey);
+
+      // Re-check time inside transaction (server time, not client time)
+      const now = this.timeValidationService.getCurrentTime();
+      
+      // Time-based validation: Cannot book after departure
+      if (now >= flight.departureTime) {
+        throw new BadRequestException('Booking is not allowed after flight departure.');
+      }
+
+      // Flight bookability validation (status + time checks)
+      this.timeValidationService.validateFlightBookable(flight);
+
+      // Atomic validation: Check available seats while row is locked
+      // Cannot book if availableSeats = 0
+      if (flight.availableSeats === 0) {
+        throw new BadRequestException('No seats available. Flight is fully booked.');
+      }
+
+      // Validate seat count atomically
+      if (flight.availableSeats < seatCount) {
+        throw new InsufficientSeatsException(flight.availableSeats, seatCount);
+      }
+
+      // Calculate total price
+      const totalPrice = flight.price * seatCount;
+
+      // Get provider information to store with booking
+      const provider = await this.userModel.findByPk(flight.providerId, {
+        attributes: ['id', 'name', 'email'],
+        transaction,
+      });
+
+      if (!provider) {
+        throw new NotFoundException('Flight provider not found');
+      }
+
+      // Create booking record atomically within transaction
+      const booking = await this.bookingModel.create(
+        {
+          userId,
+          flightId,
+          providerId: provider.id,
+          providerName: provider.name,
+          providerEmail: provider.email,
+          seatCount,
+          totalPrice,
+          status: BookingStatus.CONFIRMED,
+          bookedAt: new Date(),
+        },
+        { transaction },
+      );
+
+      // Update flight available seats atomically
+      // This happens within the same transaction, so it's atomic with booking creation
+      await flight.update(
+        {
+          availableSeats: flight.availableSeats - seatCount,
+        },
+        { transaction },
+      );
+
+      // Commit transaction - all changes become visible atomically
+      await transaction.commit();
+
+      // Invalidate related caches (flight.providerId is available from the locked flight)
+      await this.invalidateBookingRelatedCaches(userId, flightId, flight.providerId);
+
+      return booking;
+    } catch (error) {
+      // Rollback transaction on any error - ensures consistency
+      await transaction.rollback();
+      throw error;
     }
   }
 
@@ -233,53 +220,43 @@ export class BookingsService {
     // Validate booking can be cancelled (before departure)
     this.timeValidationService.validateBookingCancellable(flight.departureTime);
 
-    // Acquire lock for the flight
-    const lockKey = getBookingLockKey(booking.flightId);
-    const lockAcquired = await this.redisService.acquireLock(lockKey, CACHE_TTL.BOOKING_LOCK);
-
-    if (!lockAcquired) {
-      throw new BadRequestException('Flight is currently being processed. Please try again.');
-    }
+    // Use database transaction with SELECT FOR UPDATE for concurrency control
+    // Allows multiple cancellations to proceed in parallel
+    const transaction: Transaction = await this.bookingModel.sequelize.transaction();
 
     try {
-      const transaction: Transaction = await this.bookingModel.sequelize.transaction();
-
-      try {
-        // Re-check time inside transaction
-        const now = this.timeValidationService.getCurrentTime();
-        if (now >= flight.departureTime) {
-          throw new BadRequestException('Cannot cancel booking after flight departure.');
-        }
-
-        // Update booking status
-        await booking.update({ status: BookingStatus.CANCELLED }, { transaction });
-
-        // Find flight with lock
-        const lockedFlight = await this.flightModel.findByPk(booking.flightId, {
-          lock: true,
-          transaction,
-        });
-
-        // Restore seats
-        await lockedFlight.update(
-          {
-            availableSeats: lockedFlight.availableSeats + booking.seatCount,
-          },
-          { transaction },
-        );
-
-        await transaction.commit();
-
-        // Invalidate related caches (lockedFlight.providerId is available)
-        await this.invalidateBookingRelatedCaches(booking.userId, booking.flightId, lockedFlight.providerId);
-
-        return booking.reload();
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
+      // Re-check time inside transaction
+      const now = this.timeValidationService.getCurrentTime();
+      if (now >= flight.departureTime) {
+        throw new BadRequestException('Cannot cancel booking after flight departure.');
       }
-    } finally {
-      await this.redisService.releaseLock(lockKey);
+
+      // Update booking status
+      await booking.update({ status: BookingStatus.CANCELLED }, { transaction });
+
+      // Find flight with lock - ensures atomic seat restoration
+      const lockedFlight = await this.flightModel.findByPk(booking.flightId, {
+        lock: true, // SELECT ... FOR UPDATE
+        transaction,
+      });
+
+      // Restore seats atomically
+      await lockedFlight.update(
+        {
+          availableSeats: lockedFlight.availableSeats + booking.seatCount,
+        },
+        { transaction },
+      );
+
+      await transaction.commit();
+
+      // Invalidate related caches (lockedFlight.providerId is available)
+      await this.invalidateBookingRelatedCaches(booking.userId, booking.flightId, lockedFlight.providerId);
+
+      return booking.reload();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
   }
 

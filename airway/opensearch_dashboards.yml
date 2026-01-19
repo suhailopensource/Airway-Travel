@@ -1,0 +1,18 @@
+server.name: opensearch_dashboards
+server.host: "0.0.0.0"
+server.customResponseHeaders:
+  "Access-Control-Allow-Credentials": "true"
+
+# Disabling HTTPS on OpenSearch Dashboards
+server.ssl.enabled: false
+
+opensearch.hosts:
+  - "http://opensearch:9200"
+
+opensearch.ssl.verificationMode: none
+
+# Since OpenSearch has security disabled, we don't need credentials
+# But Dashboards might still require them, so we'll disable security plugin
+opensearch.requestHeadersAllowlist:
+  - securitytenant
+  - Authorization

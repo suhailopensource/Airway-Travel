@@ -29,14 +29,35 @@ async function clearDatabase() {
     await sequelize.authenticate();
     console.log('✅ Connected to database successfully!\n');
 
+    // Get all user-defined tables (exclude system tables)
+    console.log('📋 Finding all tables...\n');
+    const [tables] = await sequelize.query(`
+      SELECT tablename 
+      FROM pg_tables 
+      WHERE schemaname = 'public' 
+      ORDER BY tablename;
+    `, { transaction });
+
+    if (tables.length === 0) {
+      console.log('⚠️  No tables found in the database.\n');
+      await transaction.commit();
+      await sequelize.close();
+      return;
+    }
+
+    const tableNames = tables.map(t => t.tablename);
+    console.log(`   Found ${tableNames.length} tables: ${tableNames.join(', ')}\n`);
+
     console.log('🗑️  Clearing all table data...\n');
 
-    // Truncate all tables in one command with CASCADE
-    // This handles foreign key constraints automatically
+    // Disable foreign key checks temporarily for safer truncation
+    // Then truncate all tables with CASCADE to handle foreign keys
     // RESTART IDENTITY resets auto-increment sequences
-    console.log('  - Truncating all tables (bookings, flights, users)...');
+    const tableList = tableNames.map(name => `"${name}"`).join(', ');
+    
+    console.log(`   Truncating ${tableNames.length} tables...`);
     await sequelize.query(
-      'TRUNCATE TABLE bookings, flights, users RESTART IDENTITY CASCADE;',
+      `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE;`,
       { transaction }
     );
 
@@ -46,16 +67,17 @@ async function clearDatabase() {
     // Verify tables are empty
     console.log('\n📊 Verifying tables are empty...\n');
     
-    const [users] = await sequelize.query('SELECT COUNT(*) as count FROM users;');
-    const [flights] = await sequelize.query('SELECT COUNT(*) as count FROM flights;');
-    const [bookings] = await sequelize.query('SELECT COUNT(*) as count FROM bookings;');
-
-    console.log(`  Users: ${users[0].count} rows`);
-    console.log(`  Flights: ${flights[0].count} rows`);
-    console.log(`  Bookings: ${bookings[0].count} rows`);
+    for (const table of tableNames) {
+      const [result] = await sequelize.query(
+        `SELECT COUNT(*) as count FROM "${table}";`
+      );
+      const count = result[0].count;
+      console.log(`   ${table}: ${count} rows`);
+    }
 
     console.log('\n✅ Database cleared successfully!');
     console.log('   All tables are empty but structure is preserved.\n');
+    console.log('   Tables preserved:', tableNames.join(', '), '\n');
 
     await sequelize.close();
   } catch (error) {
