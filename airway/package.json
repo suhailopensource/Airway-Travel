@@ -25,6 +25,9 @@
     "test:concurrent-bookings": "node simulate-concurrent-bookings.js"
   },
   "dependencies": {
+    "@bull-board/api": "^6.16.2",
+    "@bull-board/express": "^6.16.2",
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.1.1",
     "@nestjs/core": "^10.0.0",
@@ -36,6 +39,7 @@
     "@opensearch-project/opensearch": "^2.4.0",
     "axios": "^1.13.2",
     "bcrypt": "^5.1.1",
+    "bullmq": "^5.66.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "express-session": "^1.18.2",

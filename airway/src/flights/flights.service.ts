@@ -32,6 +32,7 @@ import {
   getProviderDashboardCacheKey,
 } from '../redis/cache-keys';
 import { CACHE_TTL } from '../redis/cache-config';
+import { FlightCancellationQueue } from './flight-cancellation.queue';
 
 @Injectable()
 export class FlightsService {
@@ -48,6 +49,7 @@ export class FlightsService {
     private timeValidationService: TimeValidationService,
     private flightLifecycleService: FlightLifecycleService,
     private redisService: RedisService,
+    private flightCancellationQueue: FlightCancellationQueue,
   ) {
     this.initializeOpenSearchIndex();
   }
@@ -584,6 +586,20 @@ export class FlightsService {
     return flight;
   }
 
+  /**
+   * Cancel a flight (asynchronous booking cancellation via queue)
+   * 
+   * This method:
+   * 1. Validates provider ownership and flight status
+   * 2. Updates flight status to CANCELLED in a transaction
+   * 3. Enqueues a background job to cancel all bookings
+   * 4. Returns immediately without waiting for booking cancellation
+   * 
+   * The background worker will:
+   * - Cancel all CONFIRMED bookings in batches
+   * - Release seats atomically
+   * - Handle large volumes safely
+   */
   async remove(id: string, userId: string, userRole: Role): Promise<void> {
     const flight = await this.findOne(id);
 
@@ -592,34 +608,31 @@ export class FlightsService {
       throw new ForbiddenException('You do not have permission to delete this flight');
     }
 
+    // Reject if flight is already CANCELLED
+    if (flight.status === FlightStatus.CANCELLED) {
+      throw new BadRequestException('Flight is already cancelled');
+    }
+
     // Validate flight can be cancelled (before departure)
     this.timeValidationService.validateFlightCancellable(flight.departureTime);
 
-    // Use transaction for atomic cancellation
+    // Use transaction for atomic flight status update
+    // DO NOT cancel bookings here - that happens in the background worker
     const transaction: Transaction = await this.flightModel.sequelize.transaction();
 
     try {
-      // Mark flight as cancelled
-      await flight.update({ status: FlightStatus.CANCELLED }, { transaction });
-
-      // Cancel all CONFIRMED bookings for this flight
-      await this.bookingModel.update(
-        { status: BookingStatus.CANCELLED },
-        {
-          where: {
-            flightId: id,
-            status: BookingStatus.CONFIRMED,
-          },
-          transaction,
-        },
-      );
-
-      // Restore available seats
+      // Mark flight as cancelled and restore all seats to totalSeats
+      // (All seats become available when flight is cancelled)
+      // The background worker will handle cancelling individual bookings
       await flight.update(
-        { availableSeats: flight.totalSeats },
+        { 
+          status: FlightStatus.CANCELLED,
+          availableSeats: flight.totalSeats, // Restore all seats
+        },
         { transaction },
       );
 
+      // Commit transaction - flight is now marked as cancelled
       await transaction.commit();
     } catch (error) {
       await transaction.rollback();
@@ -628,6 +641,17 @@ export class FlightsService {
 
     // Reload flight to get updated data
     await flight.reload();
+
+    // Enqueue background job to cancel all bookings
+    // This happens AFTER successful commit, so if enqueueing fails,
+    // the flight is still cancelled (bookings will be handled separately if needed)
+    try {
+      await this.flightCancellationQueue.enqueueCancellationJob(id);
+    } catch (error) {
+      // Log error but don't fail the operation
+      // The flight is already cancelled, and we can retry booking cancellation later
+      console.error(`Failed to enqueue booking cancellation job for flight ${id}:`, error.message);
+    }
 
     // Remove from OpenSearch since flight is cancelled (not searchable)
     // If flight still exists in DB but is cancelled, we remove it from search index

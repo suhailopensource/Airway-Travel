@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
@@ -21,6 +22,17 @@ import { OpenSearchModule } from './opensearch/opensearch.module';
       envFilePath: '.env',
     }),
     ScheduleModule.forRoot(),
+    // Configure BullMQ connection to Redis
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get('REDIS_HOST') || 'localhost',
+          port: configService.get<number>('REDIS_PORT') || 6379,
+        },
+      }),
+      inject: [ConfigService],
+    }),
     CommonModule,
     DatabaseModule,
     RedisModule,

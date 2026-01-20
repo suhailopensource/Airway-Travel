@@ -7,6 +7,12 @@ import * as passport from 'passport';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from './users/users.service';
 import { SessionSerializer } from './auth/serializers';
+import { createBullBoard } from '@bull-board/api';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { ExpressAdapter } from '@bull-board/express';
+import { Queue } from 'bullmq';
+import { getQueueToken } from '@nestjs/bullmq';
+import { FLIGHT_CANCELLATION_QUEUE } from './flights/flight-cancellation.queue';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -94,6 +100,31 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
+
+  // Setup Bull Board Dashboard for queue monitoring
+  try {
+    const serverAdapter = new ExpressAdapter();
+    serverAdapter.setBasePath('/queues');
+
+    // Get the flight cancellation queue instance
+    const flightCancellationQueue = app.get<Queue>(
+      getQueueToken(FLIGHT_CANCELLATION_QUEUE),
+    );
+
+    // Create Bull Board with all queues
+    createBullBoard({
+      queues: [new BullMQAdapter(flightCancellationQueue)],
+      serverAdapter,
+    });
+
+    // Mount Bull Board on the Express app
+    app.use('/queues', serverAdapter.getRouter());
+
+    console.log(`Bull Board dashboard: http://localhost:${process.env.PORT || 3000}/queues`);
+  } catch (error) {
+    console.warn('Failed to setup Bull Board dashboard:', error.message);
+    // Don't fail the application if dashboard setup fails
+  }
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
